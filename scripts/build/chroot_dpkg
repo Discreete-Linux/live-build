@@ -1,0 +1,105 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'manage /sbin/dpkg')"
+HELP=""
+USAGE="${PROGRAM} {install|remove} [--force]"
+
+Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+# Requiring stage file
+Require_stagefile .build/config .build/bootstrap
+
+case "${1}" in
+	install)
+		Echo_message "Configuring file /sbin/start-stop-daemon"
+
+		# Checking stage file
+		Check_stagefile .build/chroot_dpkg
+
+		# Checking lock file
+		Check_lockfile .lock
+
+		# Creating lock file
+		Create_lockfile .lock
+
+		# Create custom start-stop-daemon program
+		Chroot chroot dpkg-divert --rename --quiet --add /sbin/start-stop-daemon
+
+cat > chroot/sbin/start-stop-daemon << EOF
+#!/bin/sh
+
+exit 0
+EOF
+
+		chmod 755 chroot/sbin/start-stop-daemon
+
+		# Disable dpkg syncing
+
+cat > chroot/etc/dpkg/dpkg.cfg.d/live-build << EOF
+force-unsafe-io
+EOF
+
+		# Manual hacks for special packages
+
+		# Generic live-build handle for other live packages to act upon
+		touch chroot/.live-build
+
+		# flash-kernel
+		Chroot chroot dpkg-divert --rename --quiet --add /usr/sbin/flash-kernel
+		ln -fs /bin/true chroot/usr/sbin/flash-kernel
+
+		# Creating stage file
+		Create_stagefile .build/chroot_dpkg
+		;;
+
+	remove)
+		Echo_message "Deconfiguring file /sbin/start-stop-daemon"
+
+		# Checking lock file
+		Check_lockfile .lock
+
+		# Creating lock file
+		Create_lockfile .lock
+
+		# Manual hacks for special packages
+
+		# Generic live-build handle
+		rm -f chroot/.live-build
+
+		# flash-kernel
+		rm -f chroot/usr/sbin/flash-kernel
+		Chroot chroot dpkg-divert --rename --quiet --remove /usr/sbin/flash-kernel
+
+		# Remove custom start-stop-daemon program
+		rm -f chroot/sbin/start-stop-daemon
+		Chroot chroot dpkg-divert --rename --quiet --remove /sbin/start-stop-daemon
+
+		# Remove dpkg sync configuration
+		rm -f chroot/etc/dpkg/dpkg.cfg.d/live-build
+
+		# Removing stage file
+		rm -f .build/chroot_dpkg
+		;;
+
+	*)
+		Usage
+		;;
+esac

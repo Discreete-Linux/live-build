@@ -1,0 +1,166 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Read meta config
+if [ "${1}" != "noauto" ] && [ -x auto/clean ]
+then
+	Echo_message "Executing auto/clean script."
+	./auto/clean "${@}"
+	exit ${?}
+fi
+
+if [ "${1}" = "noauto" ]
+then
+	shift
+fi
+
+# Setting static variables
+DESCRIPTION="$(Echo 'clean up system build directories')"
+HELP=""
+USAGE="${PROGRAM} [--all] [--cache] [--chroot] [--binary] [--purge] [--remove] [--stage] [--source]"
+
+#Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+# Avoid cases were users accidentally nuke their config/binary
+if [ ! -d config ] && [ "$(basename ${PWD})" = "config" ]
+then
+	Echo_error "%s is not a good live-build working directory to clean." "${PWD}"
+	exit 1
+fi
+
+rm -f .lock
+
+if [ -z "${1}" ]
+then
+	ARGUMENTS="--all"
+else
+	ARGUMENTS="${@}"
+fi
+
+for ARGUMENT in ${ARGUMENTS}
+do
+	case "${ARGUMENT}" in
+		--all)
+			"${0}" noauto --chroot
+			"${0}" noauto --binary
+			"${0}" noauto --stage
+			"${0}" noauto --source
+
+			rmdir --ignore-fail-on-non-empty auto > /dev/null 2>&1 || true
+			rmdir --ignore-fail-on-non-empty local/bin > /dev/null 2>&1 || true
+			rmdir --ignore-fail-on-non-empty local > /dev/null 2>&1 || true
+			;;
+
+		--cache)
+			rm -rf cache
+			;;
+
+		--chroot)
+			Echo_message "Cleaning chroot"
+			umount -f chroot/run > /dev/null 2>&1 || true
+			umount -f chroot/sys > /dev/null 2>&1 || true
+			umount -f chroot/proc/sys/fs/binfmt_misc > /dev/null 2>&1 || true
+			umount -f chroot/proc > /dev/null 2>&1 || true
+			umount -f chroot/lib/init/rw > /dev/null 2>&1 || true
+			umount -f chroot/dev/shm > /dev/null 2>&1 || true
+			umount -f chroot/dev/pts > /dev/null 2>&1 || true
+			umount -f chroot/dev > /dev/null 2>&1 || true
+			umount -f chroot/var/lib/dpkg > /dev/null 2>&1 || true
+			umount -f chroot/root/config > /dev/null 2>&1 || true
+
+			umount -f chroot/binary.tmp > /dev/null 2>&1 || true
+			umount -f chroot/dev.tmp/pts > /dev/null 2>&1 || true
+
+			rm -rf chroot chroot.tmp
+
+			rm -f chroot.packages.live chroot.packages.install
+			rm -f chroot.files
+
+			rm -f .build/chroot*
+			;;
+
+		--binary)
+			umount -f binary.tmp > /dev/null 2>&1 || true
+			rm -rf binary.tmp binary.deb binary.udeb
+			rm -f ${LIVE_IMAGE_NAME}*.iso
+			rm -f ${LIVE_IMAGE_NAME}*.img
+			rm -f ${LIVE_IMAGE_NAME}*.tar.gz
+			rm -f ${LIVE_IMAGE_NAME}*.zsync*
+			rm -f ${LIVE_IMAGE_NAME}.sh
+			rm -f ${LIVE_IMAGE_NAME}*.contents ${LIVE_IMAGE_NAME}*.packages ${LIVE_IMAGE_NAME}*.files
+			rm -f MD5SUMS SHA1SUMS SHA256SUMS SHA512SUMS
+			rm -f md5sum.txt sha1sum.txt sha256sum.txt sha512sum.txt
+
+			rm -rf binary
+			rm -rf tftpboot
+
+			rm -f .build/binary*
+			;;
+
+		--remove)
+			"${0}" --all
+			rm -rf cache/packages.*
+			;;
+
+		--purge)
+			"${0}" --all
+			"${0}" --cache
+
+			if [ -e auto/config ]
+			then
+				rm -f .build/config
+			fi
+			;;
+
+		--stage)
+			rm -rf .build/*
+			;;
+
+		--source)
+			rm -f ${LIVE_IMAGE_NAME}-source*.iso
+			rm -f ${LIVE_IMAGE_NAME}-source*.img
+			rm -f ${LIVE_IMAGE_NAME}-source*.tar
+			rm -f ${LIVE_IMAGE_NAME}-source*.tar.gz
+			rm -f ${LIVE_IMAGE_NAME}-source*.list
+			rm -f ${LIVE_IMAGE_NAME}-source-selection.txt
+
+			rm -rf source
+
+			rm -f .build/source*
+			;;
+
+		-h|--help)
+			Help
+			;;
+
+		-u|--usage)
+			Usage
+			;;
+
+		-v|--version)
+			echo "${VERSION}"
+			exit 0
+			;;
+
+		*)
+			Usage
+			exit 1
+			;;
+	esac
+done

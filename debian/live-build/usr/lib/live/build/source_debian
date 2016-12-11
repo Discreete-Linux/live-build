@@ -1,0 +1,207 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'debian sources')"
+HELP=""
+USAGE="${PROGRAM} [--force]"
+
+Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+if [ "${LB_SOURCE}" != "true" ]
+then
+	exit 0
+fi
+
+Echo_message "Begin downloading sources..."
+
+# Requiring stage file
+Require_stagefile .build/config .build/bootstrap
+
+# Checking stage file
+Check_stagefile .build/source_debian
+
+# Checking lock file
+Check_lockfile .lock
+
+# Creating lock file
+Create_lockfile .lock
+
+# Remove old sources
+if [ -d source/debian ]
+then
+	rm -rf source/debian
+fi
+
+# Download sources
+Chroot chroot "dpkg --get-selections" | awk '{ print $1 }' > source-selection.txt
+
+echo "${LB_BOOTLOADERS}" | \
+while IFS="," read -r BOOTLOADER
+do
+  cat >> source-selection.txt << EOF
+  ${BOOTLOADER}
+EOF
+done
+
+cat >> source-selection.txt << EOF
+live-build
+EOF
+
+case "${LB_BINARY_IMAGES}" in
+	iso*)
+		echo "xorriso" >> source-selection.txt
+		;;
+
+	hdd*)
+		echo "parted" >> source-selection.txt
+		;;
+esac
+
+case "${LB_CHROOT_FILESYSTEM}" in
+	squashfs)
+		echo "squashfs-tools" >> source-selection.txt
+		;;
+esac
+
+case "${LB_BINARY_FILESYSTEM}" in
+	fat*)
+		echo "dosfstools" >> source-selection.txt
+		;;
+
+	ntfs)
+		echo "ntfs-3g" >> source-selection.txt
+		;;
+esac
+
+case "${LB_ARCHITECTURES}" in
+	amd64|i386)
+
+cat >> source-selection.txt << EOF
+mtools
+syslinux
+grub
+EOF
+
+		if [ "${LB_MEMTEST}" != "false" ] && [ "${LB_MEMTEST}" != "none" ]
+		then
+			echo "${LB_MEMTEST}" >> source-selection.txt
+		fi
+		;;
+esac
+
+if [ -n "${LB_TASKS}" ]
+then
+	echo "${LB_TASKSEL}" >> source-selection.txt
+fi
+
+# apt-get source does not respect pinning
+# building images with backports included but not enabled
+# will result in apt-get source download stuff from backports
+# where available. workaround: disable backports
+case "${LB_MODE}" in
+	progress-linux)
+		case "${LB_DISTRIBUTION}" in
+			*-backports)
+
+				;;
+
+			*)
+				if grep -qs "${LB_DISTRIBUTION}-backports" chroot/etc/apt/sources.list.d/progress-linux.list
+				then
+					cp chroot/etc/apt/sources.list.d/progress-linux.list chroot/etc/apt/sources.list.d/progress-linux.list.orig
+
+					while read _LINE
+					do
+						if echo "${_LINE}" | grep -qs ${LB_DISTRIBUTION}-backports
+						then
+							sed -i -e "s|${_LINE}|#${_LINE}|" chroot/etc/apt/sources.list.d/progress-linux.list
+						fi
+					done < chroot/etc/apt/sources.list.d/progress-linux.list.orig
+
+					Apt chroot update
+				fi
+				;;
+		esac
+		;;
+esac
+
+MISSING=""
+
+grep . source-selection.txt | \
+while read PACKAGE
+do
+	if ! Chroot chroot "apt-get ${APT_OPTIONS} --download-only source ${PACKAGE}"
+	then
+		MISSING="${MISSING} ${PACKAGE}"
+	fi
+done
+
+if [ -n "${MISSING}" ]
+then
+	cat > source/missing-source.txt << EOF
+This file contains the list of binary packages that are installed on this live
+system that do not have a corresponding source package.
+
+EOF
+
+	for PACKAGE in ${MISSING}
+	do
+		Chroot chroot "dpkg -l ${PACKAGE}" | tail -n1 >> source/missing-source.txt
+	done
+fi
+
+rm -f source-selection.txt
+
+# Sort sources
+for DSC in chroot/*.dsc
+do
+	SOURCE="$(sed -n 's|^Source: ||p' ${DSC} 2>/dev/null || :)"
+	# The sed may fail if multiple dsc files exist for same source, as the
+	# first one to match will have already been moved.
+	[ -n "$SOURCE" ] || continue
+
+	case "${SOURCE}" in
+		lib?*)
+			LETTER="$(echo ${SOURCE} | sed 's|\(....\).*|\1|')"
+			;;
+
+		*)
+			LETTER="$(echo ${SOURCE} | sed 's|\(.\).*|\1|')"
+			;;
+	esac
+
+	# Install directory
+	mkdir -p source/debian/"${LETTER}"/"${SOURCE}"
+
+	# Move files
+	mv chroot/"${SOURCE}"_* source/debian/"${LETTER}"/"${SOURCE}"
+done
+
+# Reverting apt sources again
+if [ -e chroot/etc/apt/sources.list.d/progress-linux.list.orig ]
+then
+	mv chroot/etc/apt/sources.list.d/progress-linux.list.orig chroot/etc/apt/sources.list.d/progress-linux.list
+
+	Apt chroot update
+fi
+
+# Creating stage file
+Create_stagefile .build/source_debian
+Create_stagefile .build/source

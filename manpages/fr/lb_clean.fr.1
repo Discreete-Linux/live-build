@@ -1,0 +1,79 @@
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH LIVE\-BUILD 1 21.10.2015 5.0~a11\-1 "Projet Live Systems"
+
+.SH NOM
+\fBlb clean\fP \- Nettoie le répertoire de construction
+
+.SH SYNOPSIS
+\fBlb clean\fP [\fIlive\-build options\fP]
+
+.SH DESCRIPTION
+\fBlb clean\fP est une commande de haut\-niveau (porcelaine) de
+\fIlive\-build\fP(7), la suite d'outils de live\-systems.
+.PP
+.\" FIXME
+.\" FIXME
+\fBlb clean\fP est responsable du nettoyage après la construction d'un
+système. Il supprime les répertoires de constructions, et supprime d'autres
+fichiers y compris les fichiers de stage, et tout détritus oublié par les
+autres commandes live\-build.
+
+.SH OPTIONS
+En plus de ses options spécifiques \fBlb clean\fP fonctionne avec toutes les
+options génériques de live\-build. Voir \fIlive\-build\fP(7) pour une liste
+complète de toutes les options génériques de live\-build options.
+.PP
+.\" FIXME
+.IP \fB\-\-all\fP 4
+supprimes le chroot, le binaire, le stage et la source. Le répertoire de
+cache est conservé. C'est l'opération par défaut et sera activé si aucun
+argument n'est donné.
+.IP \fB\-\-cache\fP 4
+supprime les répertoires de cache.
+.IP \fB\-\-chroot\fP 4
+démonte et retire le répertoire de chroot.
+.IP \fB\-\-binary\fP 4
+supprime tous les caches, fichiers, répertoires et fichiers de stage
+relatifs au binaire.
+.IP \fB\-\-purge\fP 4
+supprime tout, y compris tous les caches. Le répertoire de configuration est
+conservé.
+.IP \fB\-\-remove\fP 4
+supprime tout, y compris le cache des paquets mais pas le cache de stage. Le
+répertoire de configuration est conservé.
+.IP \fB\-\-stage\fP 4
+supprime tous les fichiers de stage.
+.IP \fB\-\-source\fP 4
+.\" FIXME
+supprime tous les caches, fichiers, répertoires et fichiers de stage
+relatifs aux sources.
+
+.SH FICHIERS
+.\" FIXME
+.IP \fBauto/clean\fP 4
+
+.\" FIXME
+.SH "VOIR AUSSI"
+\fIlive\-build\fP(7)
+.PP
+Ce programme est une partie de live\-build.
+
+.SH "PAGE D'ACCUEIL"
+Davantage d'informations à propos de live\-build et du projet Live Systems
+peuvent être trouvées sur la page d'accueil à
+<\fIhttp://live\-systems.org/\fP> et dans le manuel à
+<\fIhttp://live\-systems.org/manual/\fP>.
+
+.SH BOGUES
+Les bogues peuvent être signalés en soumettant un rapport de bogue pour le
+paquet live\-build dans le BTS à <\fIhttp://bugs.debian.org/\fP> ou par
+l'écriture d'un courriel à la liste de diffusion Live Systems à
+<\fIdebian\-live@lists.debian.org\fP>.
+
+.SH AUTEUR
+live\-images a été écrit par Daniel Baumann
+<\fImail@daniel\-baumann.ch\fP>.

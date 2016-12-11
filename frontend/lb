@@ -1,0 +1,90 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'utility to build live systems')"
+HELP="FIXME"
+USAGE="FIXME"
+
+case "${1}" in
+	-h|--help)
+		if [ -x "$(which man 2>/dev/null)" ]
+		then
+			man lb
+			exit 0
+		else
+			${0} --usage
+			exit 0
+		fi
+		;;
+
+	""|-u|--usage)
+		Usage
+		;;
+
+	-v|--version)
+		echo "${VERSION}"
+		exit 0
+		;;
+
+	*)
+		COMMAND="${1}"
+		shift
+
+		ENV=""
+
+		if [ "${COMMAND}" != "config" ]
+		then
+			# Checking user account
+			if [ "$(id -u)" -ne "0" ]
+			then
+				Echo_error "need root privileges"
+				exit 1
+			fi
+		fi
+
+		for _FILE in config/environment config/environment.binary
+		do
+			if [ -e "${_FILE}" ]
+			then
+				ENV="${ENV} $(grep -v '^#' ${_FILE})"
+			fi
+		done
+
+		if [ -x "${LIVE_BUILD}/scripts/build/${COMMAND}" ]
+		then
+			# User has live-build copied locally in the system
+			SCRIPT="${LIVE_BUILD}/scripts/build/${COMMAND}"
+		elif [ -x "local/live-build/scripts/build/${COMMAND}" ]
+		then
+			# User has live-build copied locally in the config
+			SCRIPT="local/live-build/scripts/build/${COMMAND}"
+		elif [ -x /usr/lib/live/build/${COMMAND} ]
+		then
+			# User has live-build installed in the system
+			SCRIPT=/usr/lib/live/build/"${COMMAND}"
+		elif [ -x "$(which ${COMMAND} 2>/dev/null)" ]
+		then
+			# User has live-build commands in path
+			SCRIPT="${COMMAND}"
+		else
+			Echo_error "no such script: ${COMMAND}"
+			exit 1
+		fi
+
+		Echo "[%s] %s" "$(date +'%F %T')" "lb ${COMMAND} $(echo ${@})"
+		${ENV} exec "${SCRIPT}" "${@}"
+		;;
+esac

@@ -1,0 +1,255 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2016 Adrian Gibanel Lopez <adrian15sgd@gmail.com>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'prepares and installs Grub based EFI support into binary')"
+HELP=""
+USAGE="${PROGRAM} [--force]"
+
+Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+Check_Any_Bootloader_Role "grub-efi"
+
+Echo_message "Begin preparing Grub based EFI support..."
+
+# Requiring stage file
+Require_stagefile .build/config .build/bootstrap
+
+# Checking stage file
+Check_stagefile .build/binary_grub-efi
+
+# Checking lock file
+Check_lockfile .lock
+
+# Creating lock file
+Create_lockfile .lock
+
+# Check architecture
+Check_architectures amd64 i386
+Check_crossarchitectures
+
+case "${LB_ARCHITECTURES}" in
+	amd64)
+		_EFI_TYPE=efi64
+		;;
+	i386)
+		_EFI_TYPE=efi32
+		;;
+	*)
+		echo "ERROR: can't provide EFI boot support to architecture ${LB_ARCHITECTURES}" >&2
+		exit 1
+		;;
+esac
+
+
+# Checking depends
+case "${LB_BUILD_WITH_CHROOT}" in
+	true)
+		_CHROOT_DIR=""
+		_SYSLINUX_EFI_DIR="chroot/usr/lib/SYSLINUX.EFI/$_EFI_TYPE"
+		_SYSLINUX_COMMON_DIR="chroot/usr/lib/syslinux/modules/$_EFI_TYPE"
+
+		Check_package chroot /usr/lib/grub/x86_64-efi/configfile.mod grub-efi-amd64-bin
+		Check_package chroot /usr/lib/grub/i386-efi/configfile.mod grub-efi-ia32-bin
+		Check_package chroot /usr/bin/grub-mkimage grub-common
+		Check_package chroot /usr/bin/mcopy mtools
+		Check_package chroot /sbin/mkfs.msdos dosfstools
+		;;
+
+	false)
+		_CHROOT_DIR="chroot"
+
+		if [ ! -e /usr/lib/grub/x86_64-efi ]
+		then
+			# grub-efi-amd64-bin
+			Echo_error "/usr/lib/grub/x86_64-efi - no such directory"
+			exit 1
+		fi
+
+		if [ ! -e /usr/lib/grub/i386-efi ]
+		then
+			# grub-efi-ia32-bin
+			Echo_error "/usr/lib/grub/i386-efi - no such directory"
+			exit 1
+		fi
+
+		if [ ! -e /usr/bin/grub-mkimage ]
+		then
+			# grub-common
+			Echo_error "/usr/bin/grub-mkimage - no such file."
+			exit 1
+		fi
+
+		if [ ! -e /usr/bin/mcopy ]
+		then
+			# mtools
+			Echo_error "/usr/bin/mcopy - no such file."
+			exit 1
+		fi
+
+		if [ ! -e /sbin/mkfs.msdos ]
+		then
+			# dosfstools
+			Echo_error "/sbin/mkfs.msdos - no such file."
+			exit 1
+		fi
+		;;
+esac
+
+
+
+
+case "${LB_INITRAMFS}" in
+	live-boot)
+		INITFS="live"
+		;;
+
+	*)
+		INITFS=""
+		;;
+esac
+
+# Setting destination directory
+case "${LIVE_IMAGE_TYPE}" in
+	iso*|tar)
+		case "${LB_INITRAMFS}" in
+			live-boot)
+				DESTDIR_LIVE="binary/live"
+				;;
+
+			*)
+				DESTDIR_LIVE="binary/live"
+				;;
+		esac
+
+		DESTDIR_INSTALL="binary/install"
+		;;
+
+	hdd*|netboot)
+		Echo_warning "Bootloader in this image type not yet supported by live-build."
+		Echo_warning "This would produce a not bootable image, aborting (FIXME)."
+		exit 1
+	;;
+esac
+
+# Restoring cache
+Restore_cache cache/packages.binary
+
+# Installing depends
+Install_package
+
+# Cleanup files that we generate
+rm -rf binary/boot/efi.img binary/boot/grub/i386-efi/ binary/boot/grub/x86_64-efi
+
+# This is workaround till both efi-image and grub-cpmodules are put into a binary package
+case "${LB_BUILD_WITH_CHROOT}" in
+        true)
+		if [ ! -e "${LIVE_BUILD}" ] ; then
+			LIVE_BUILD_PATH="/usr/lib/live/build"
+		else
+			LIVE_BUILD_PATH="${LIVE_BUILD}/scripts/build"
+		fi
+		mkdir -p chroot/${LIVE_BUILD_PATH}
+		cp "${LIVE_BUILD_PATH}/efi-image" "chroot/${LIVE_BUILD_PATH}"
+		cp "${LIVE_BUILD_PATH}/grub-cpmodules" "chroot/${LIVE_BUILD_PATH}"
+        ;;
+esac
+#####
+cat >binary.sh <<END
+#!/bin/sh
+
+set -e
+
+PRE_EFI_IMAGE_PATH="${PATH}"
+if [ ! -e "${LIVE_BUILD}" ] ; then
+	LIVE_BUILD_PATH="/usr/lib/live/build"
+else
+	LIVE_BUILD_PATH="${LIVE_BUILD}/scripts/build"
+fi
+
+PATH="${PATH}:\${LIVE_BUILD_PATH}" # Make sure grub-cpmodules is used as if it was installed in the system
+
+"\${LIVE_BUILD_PATH}/efi-image" "${_CHROOT_DIR}/grub-efi-temp-x86_64-efi/" "x86_64-efi" "x64" "debian-live/amd64"
+mkdir -p ${_CHROOT_DIR}/grub-efi-temp/efi/boot
+mcopy -n -i ${_CHROOT_DIR}/grub-efi-temp-x86_64-efi/efi.img '::efi/boot/boot*.efi' ${_CHROOT_DIR}/grub-efi-temp/efi/boot
+cp -r "${_CHROOT_DIR}"/grub-efi-temp-x86_64-efi/* "${_CHROOT_DIR}/grub-efi-temp/"
+
+"\${LIVE_BUILD_PATH}/efi-image" "${_CHROOT_DIR}/grub-efi-temp-i386-efi/" "i386-efi" "ia32" "debian-live/i386"
+PATH="\${PRE_EFI_IMAGE_PATH}"
+mkdir -p ${_CHROOT_DIR}/grub-efi-temp/efi/boot
+mcopy -n -i ${_CHROOT_DIR}/grub-efi-temp-i386-efi/efi.img '::efi/boot/boot*.efi' ${_CHROOT_DIR}/grub-efi-temp/efi/boot
+cp -r "${_CHROOT_DIR}"/grub-efi-temp-i386-efi/* "${_CHROOT_DIR}/grub-efi-temp/"
+
+# The code below is adapted from tools/boot/jessie/boot-x86
+# in debian-cd
+
+# Stuff the EFI boot files into a FAT filesystem, making it as
+# small as possible.  24KiB headroom seems to be enough;
+# (x+31)/32*32 rounds up to multiple of 32.
+# This is the same as in efi-image, but we need to redo it here in
+# the case of a multi-arch amd64/i386 image
+
+size=0
+for file in ${_CHROOT_DIR}/grub-efi-temp/efi/boot/boot*.efi; do
+	size=\$((\$size + \$(stat -c %s "\$file")))
+done
+
+blocks=\$(((\$size / 1024 + 55) / 32 * 32 ))
+
+rm -f ${_CHROOT_DIR}/grub-efi-temp/boot/grub/efi.img
+mkfs.msdos -C "${_CHROOT_DIR}/grub-efi-temp/boot/grub/efi.img" \$blocks >/dev/null
+mmd -i "${_CHROOT_DIR}/grub-efi-temp/boot/grub/efi.img" ::efi
+mmd -i "${_CHROOT_DIR}/grub-efi-temp/boot/grub/efi.img" ::efi/boot
+mcopy -o -i "${_CHROOT_DIR}/grub-efi-temp/boot/grub/efi.img" ${_CHROOT_DIR}/grub-efi-temp/efi/boot/boot*.efi \
+	"::efi/boot"
+END
+
+case "${LB_BUILD_WITH_CHROOT}" in
+        true)
+			mv binary.sh chroot/
+			Chroot chroot "sh binary.sh"
+			rm -f chroot/binary.sh
+
+			# Saving cache
+			Save_cache cache/packages.binary
+
+			# Removing depends
+			Remove_package
+			;;
+
+		false)
+			sh binary.sh
+			rm -f binary.sh
+			;;
+esac
+
+# Remove unnecessary files
+rm -f chroot/grub-efi-temp/bootnetia32.efi
+rm -f chroot/grub-efi-temp/bootnetx64.efi
+
+mkdir -p binary
+cp -r chroot/grub-efi-temp/* binary/
+rm -rf chroot/grub-efi-temp-x86_64-efi
+rm -rf chroot/grub-efi-temp-i386-efi
+rm -rf chroot/grub-efi-temp
+
+# We rely on: binary_loopback_cfg to generate grub.cfg and other configuration files
+
+# Creating stage file
+Create_stagefile .build/binary_grub-efi

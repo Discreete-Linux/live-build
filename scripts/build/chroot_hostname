@@ -1,0 +1,91 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'manage /bin/hostname')"
+HELP=""
+USAGE="${PROGRAM} {install|remove} [--force]"
+
+Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+# Requiring stage file
+Require_stagefile .build/config .build/bootstrap
+
+case "${1}" in
+	install)
+		# Checking stage file
+		Check_stagefile .build/chroot_hostname
+
+		# Checking lock file
+		Check_lockfile .lock
+
+		# Creating lock file
+		Create_lockfile .lock
+
+		# Create hostname file
+		Echo_message "Configuring file /etc/hostname"
+
+		echo "localhost.localdomain" > chroot/etc/hostname
+
+		# Create custom hostname
+		Echo_message "Configuring file /bin/hostname"
+
+		Chroot chroot dpkg-divert --rename --quiet --add /bin/hostname
+
+cat > chroot/bin/hostname << EOF
+#!/bin/sh
+
+echo "localhost.localdomain"
+EOF
+
+		chmod 755 chroot/bin/hostname
+
+		# Creating stage file
+		Create_stagefile .build/chroot_hostname
+		;;
+
+	remove)
+		Echo_message "Deconfiguring file /etc/hostname"
+
+		# Checking lock file
+		Check_lockfile .lock
+
+		# Creating lock file
+		Create_lockfile .lock
+
+		# Copying hostname from includes, if existing
+		if [ -e config/includes.chroot/etc/hostname ]
+		then
+			cp -a config/includes.chroot/etc/hostname chroot/etc/hostname
+		fi
+
+		Echo_message "Deconfiguring file /bin/hostname"
+
+		# Remove custom hostname
+		rm -f chroot/bin/hostname
+		Chroot chroot dpkg-divert --rename --quiet --remove /bin/hostname
+
+		# Removing stage file
+		rm -f .build/chroot_hostname
+		;;
+
+	*)
+		Usage
+		;;
+esac

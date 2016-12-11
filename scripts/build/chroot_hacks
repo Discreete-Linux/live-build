@@ -1,0 +1,128 @@
+#!/bin/sh
+
+## live-build(7) - System Build Scripts
+## Copyright (C) 2006-2015 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+# Including common functions
+[ -e "${LIVE_BUILD}/scripts/build.sh" ] && . "${LIVE_BUILD}/scripts/build.sh" || . /usr/lib/live/build.sh
+
+# Setting static variables
+DESCRIPTION="$(Echo 'execute hacks in chroot')"
+HELP=""
+USAGE="${PROGRAM} [--force]"
+
+Arguments "${@}"
+
+# Reading configuration files
+Read_conffiles config/all config/common config/bootstrap config/chroot config/binary config/source
+Set_defaults
+
+Echo_message "Begin executing hacks..."
+
+# Requiring stage file
+Require_stagefile .build/config .build/bootstrap
+
+# Checking stage file
+Check_stagefile .build/chroot_hacks
+
+# Checking lock file
+Check_lockfile .lock
+
+# Creating lock file
+Create_lockfile .lock
+
+case "${LIVE_IMAGE_TYPE}" in
+	netboot)
+		if [ ! -f chroot/sbin/mount.cifs ]
+		then
+			Apt chroot install cifs-utils
+		fi
+
+		if [ ! -d chroot/etc/initramfs-tools ]
+		then
+			mkdir chroot/etc/initramfs-tools
+		fi
+
+		# Configuring initramfs for NFS
+		if ! grep -qs "BOOT=nfs" chroot/etc/initramfs-tools/initramfs.conf
+		then
+			echo "BOOT=nfs" >> chroot/etc/initramfs-tools/initramfs.conf
+		fi
+
+		if ! grep -qs "NFSROOT=auto" chroot/etc/initramfs-tools/initramfs.conf
+		then
+			echo "NFSROOT=auto" >> chroot/etc/initramfs-tools/initramfs.conf
+		fi
+		;;
+esac
+
+# Update initramfs (always, because of udev rules in initrd)
+case "${LB_INITRAMFS}" in
+	live-boot)
+		#UPDATE_INITRAMFS_OPTIONS="LIVE_GENERATE_UUID=1"
+		;;
+esac
+
+if [ "${LB_INITRAMFS}" != "none" ]
+then
+	Chroot chroot "${UPDATE_INITRAMFS_OPTIONS} update-initramfs -k all -t -u"
+fi
+
+# We probably ought to use COMPRESS= in a temporary file in
+# /etc/initramfs-tools/conf.d/ instead, but it's hard to pass options that
+# way.
+case "${LB_INITRAMFS_COMPRESSION}" in
+	gzip)
+		;;
+
+	bzip2)
+		for INITRAMFS in $(find chroot/boot -name 'initrd*'); do
+			zcat "${INITRAMFS}" | bzip2 -c ${BZIP2_OPTIONS} > "${INITRAMFS}.new"
+			mv "${INITRAMFS}.new" "${INITRAMFS}"
+			echo "$(sha1sum ${INITRAMFS} | awk '{ print $1 }')  /boot/$(basename ${INITRAMFS})" > chroot/var/lib/initramfs-tools/$(basename ${INITRAMFS} | sed -e 's|initrd.img-||')
+		done
+		;;
+
+	lzma)
+		for INITRAMFS in $(find chroot/boot -name 'initrd*'); do
+			zcat "${INITRAMFS}" | lzma -c ${LZMA_OPTIONS} > "${INITRAMFS}.new"
+			mv "${INITRAMFS}.new" "${INITRAMFS}"
+			echo "$(sha1sum ${INITRAMFS} | awk '{ print $1 }')  /boot/$(basename ${INITRAMFS})" > chroot/var/lib/initramfs-tools/$(basename ${INITRAMFS} | sed -e 's|initrd.img-||')
+		done
+		;;
+esac
+
+case "${LB_INITRAMFS}" in
+	live-boot)
+		ID="1000"
+		;;
+
+	*)
+		ID=""
+		;;
+esac
+
+rm -f chroot/etc/hosts
+
+if [ "${LB_DEBIAN_INSTALLER}" = "live" ]
+then
+	# This is a temporary hack to get rid of fstab;
+	# needs cleanup in live-boot first to proper fix.
+	rm -f chroot/etc/fstab
+	touch chroot/etc/fstab
+fi
+
+if [ "${LB_SWAP_FILE_PATH}" ]; then
+	dd if=/dev/zero of="chroot/${LB_SWAP_FILE_PATH}" bs=1024k count="${LB_SWAP_FILE_SIZE}"
+	mkswap "chroot/${LB_SWAP_FILE_PATH}"
+fi
+
+# Creating stage file
+Create_stagefile .build/chroot_hacks

@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+%:
+	dh ${@} --parallel
+
+override_dh_auto_install:
+	dh_auto_install -- DESTDIR=debian/live-build
+
+	# Removing unused files
+	rm -f debian/live-build/usr/share/doc/live-build/COPYING
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
+
+override_dh_link:
+	dh_link
+
+	# workaround dh_link convertion of absolute symlinks to relvative symlinks
+	rm -rf debian/live-build/usr/share/live/build/bootloaders
+	cp -a share/bootloaders debian/live-build/usr/share/live/build/bootloaders
